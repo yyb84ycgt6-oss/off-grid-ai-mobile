@@ -39,6 +39,7 @@ import {
   ProDetailScreen,
   AboutScreen,
   ToolsScreen,
+  ApiForgeScreen,
 } from '../screens';
 import {
   RootStackParamList,
@@ -248,6 +249,7 @@ export const AppNavigator: React.FC = () => {
           options={{ headerShown: false }}
         />
         <RootStack.Screen name="Tools" component={ToolsScreen} />
+        <RootStack.Screen name="ApiForge" component={ApiForgeScreen} />
         <RootStack.Screen
           name="DownloadManager"
           component={DownloadManagerScreen}
