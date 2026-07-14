@@ -17,6 +17,8 @@ import { useAppStore, useChatStore } from '../stores';
 import { useDownloadStore } from '../stores/downloadStore';
 import { hardwareService, modelManager } from '../services';
 import { backupService } from '../services/backupService';
+import { routerArtifactService } from '../services/routerArtifact';
+import type { StoredRouterSummary } from '../services/routerArtifact/types';
 import { OrphanedFilesSection } from './OrphanedFilesSection';
 import { imageBackendLabel } from '../utils/imageBackend';
 import { createStyles } from './StorageSettingsScreen.styles';
@@ -28,6 +30,7 @@ export const StorageSettingsScreen: React.FC = () => {
   const [storageUsed, setStorageUsed] = useState(0);
   const [availableStorage, setAvailableStorage] = useState(0);
   const [alertState, setAlertState] = useState<AlertState>(initialAlertState);
+  const [routerArtifacts, setRouterArtifacts] = useState<StoredRouterSummary[]>([]);
 
   const {
     downloadedModels,
@@ -52,9 +55,19 @@ export const StorageSettingsScreen: React.FC = () => {
     setAvailableStorage(available);
   }, [imageStorageUsed]);
 
+  const loadRouterArtifacts = useCallback(async () => {
+    try {
+      const artifacts = await routerArtifactService.list();
+      setRouterArtifacts(artifacts);
+    } catch (error) {
+      console.warn('Failed to load router artifacts:', error);
+    }
+  }, []);
+
   useEffect(() => {
     loadStorageInfo();
-  }, [loadStorageInfo]);
+    loadRouterArtifacts();
+  }, [loadStorageInfo, loadRouterArtifacts]);
 
   const handleClearStaleDownload = useCallback(
     (modelKey: string) => {
@@ -88,6 +101,49 @@ export const StorageSettingsScreen: React.FC = () => {
       setAlertState(showAlert('Import Failed', error instanceof Error ? error.message : 'Could not read the backup file.'));
     }
   }, []);
+
+  const handleImportRouterArtifact = useCallback(async () => {
+    try {
+      const result = await pick({ type: [types.allFiles] });
+      if (!result || result.length === 0) return;
+      const file = result[0];
+      const summary = await routerArtifactService.import(file);
+      setAlertState(showAlert(
+        'Router Artifact Imported',
+        `Imported "${summary.name}" (${summary.kind}, ${hardwareService.formatBytes(summary.sizeBytes)})`,
+      ));
+      await loadRouterArtifacts();
+    } catch (error) {
+      if (isErrorWithCode(error) && error.code === errorCodes.OPERATION_CANCELED) return;
+      setAlertState(showAlert('Import Failed', error instanceof Error ? error.message : 'Could not import the router artifact.'));
+    }
+  }, [loadRouterArtifacts]);
+
+  const handleRemoveRouterArtifact = useCallback((name: string) => {
+    setAlertState(
+      showAlert(
+        'Remove Router Artifact',
+        `Remove "${name}"?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Remove',
+            style: 'destructive',
+            onPress: async () => {
+              setAlertState(hideAlert());
+              try {
+                await routerArtifactService.remove(name);
+                await loadRouterArtifacts();
+                setAlertState(showAlert('Removed', `Router artifact "${name}" was removed.`));
+              } catch (error) {
+                setAlertState(showAlert('Error', error instanceof Error ? error.message : 'Failed to remove artifact.'));
+              }
+            },
+          },
+        ],
+      ),
+    );
+  }, [loadRouterArtifacts]);
 
   const handleClearAllStaleDownloads = useCallback(() => {
     setAlertState(
@@ -195,6 +251,46 @@ export const StorageSettingsScreen: React.FC = () => {
           <Text style={[styles.hint, { textAlign: 'left' as const, marginTop: SPACING.sm }]}>
             Your conversations and projects are written to a single JSON file on export. You choose where it goes from the share sheet. The app itself uploads nothing.
           </Text>
+        </Card>
+
+        <Card style={styles.section}>
+          <Text style={styles.sectionTitle}>Router Artifacts</Text>
+          <TouchableOpacity style={styles.infoRow} onPress={handleImportRouterArtifact}>
+            <View style={styles.infoRowLeft}>
+              <Icon name="upload" size={18} color={colors.primary} />
+              <Text style={styles.infoLabel}>Import artifact</Text>
+            </View>
+            <Icon name="chevron-right" size={18} color={colors.textSecondary} />
+          </TouchableOpacity>
+          {routerArtifacts.length > 0 ? (
+            <>
+              <Text style={[styles.hint, { textAlign: 'left' as const, marginTop: SPACING.sm, marginBottom: SPACING.md }]}>
+                {routerArtifacts.length} artifact{routerArtifacts.length !== 1 ? 's' : ''} imported.
+              </Text>
+              {routerArtifacts.map((artifact, index) => (
+                <View
+                  key={artifact.name}
+                  style={[styles.modelRow, index === routerArtifacts.length - 1 && styles.lastRow]}
+                >
+                  <View style={styles.modelInfo}>
+                    <Text style={styles.modelName} numberOfLines={1}>{artifact.name}</Text>
+                    <Text style={styles.modelMeta}>
+                      {artifact.kind} • {artifact.labels.length} label{artifact.labels.length !== 1 ? 's' : ''} • {hardwareService.formatBytes(artifact.sizeBytes)}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => handleRemoveRouterArtifact(artifact.name)}
+                  >
+                    <Icon name="trash-2" size={18} color={colors.error} />
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </>
+          ) : (
+            <Text style={[styles.hint, { textAlign: 'left' as const, marginTop: SPACING.sm }]}>
+              No router artifacts imported. Import one to extend app routing capabilities.
+            </Text>
+          )}
         </Card>
 
         {downloadedModels.length > 0 && (

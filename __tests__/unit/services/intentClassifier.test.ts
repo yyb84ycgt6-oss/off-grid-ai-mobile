@@ -9,13 +9,16 @@
 import { intentClassifier, classifyToolsNeeded } from '../../../src/services/intentClassifier';
 import { llmService } from '../../../src/services/llm';
 import { activeModelService } from '../../../src/services/activeModelService';
+import { routerArtifactService } from '../../../src/services/routerArtifact';
 
 // Mock dependencies
 jest.mock('../../../src/services/llm');
 jest.mock('../../../src/services/activeModelService');
+jest.mock('../../../src/services/routerArtifact');
 
 const mockLlmService = llmService as jest.Mocked<typeof llmService>;
 const mockActiveModelService = activeModelService as jest.Mocked<typeof activeModelService>;
+const mockRouterArtifactService = routerArtifactService as jest.Mocked<typeof routerArtifactService>;
 
 describe('IntentClassifier', () => {
   beforeEach(() => {
@@ -1112,6 +1115,151 @@ describe('IntentClassifier', () => {
 
     test('should accept boolean false for useLLM', async () => {
       const result = await intentClassifier.classifyIntent('draw a cat', false);
+      expect(result).toBe('image');
+    });
+  });
+
+  // ============================================================================
+  // ROUTER ARTIFACT INTEGRATION
+  // ============================================================================
+  describe('Router Artifact Integration', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+      intentClassifier.clearCache();
+    });
+
+    test('should accept router result when confidence >= 0.85', async () => {
+      mockRouterArtifactService.route.mockResolvedValue({
+        label: 'image',
+        confidence: 0.95,
+        scores: { image: 0.95, text: 0.05 },
+      });
+
+      const result = await intentClassifier.classifyIntent('ambiguous message', { useLLM: false });
+
+      expect(result).toBe('image');
+      expect(mockRouterArtifactService.route).toHaveBeenCalledWith('intent-dispatch', 'ambiguous message');
+    });
+
+    test('should fall through to pattern matching when router confidence < 0.85', async () => {
+      mockRouterArtifactService.route.mockResolvedValue({
+        label: 'image',
+        confidence: 0.75,
+        scores: { image: 0.75, text: 0.25 },
+      });
+
+      const result = await intentClassifier.classifyIntent('draw a cat', { useLLM: false });
+
+      // Should fall through and use pattern matching instead
+      expect(result).toBe('image');
+      // Pattern match happens after router falls through
+      expect(mockRouterArtifactService.route).toHaveBeenCalled();
+    });
+
+    test('should fall through when router artifact does not exist', async () => {
+      mockRouterArtifactService.route.mockRejectedValue(
+        new Error('Router artifact "intent-dispatch" not found.')
+      );
+
+      const result = await intentClassifier.classifyIntent('draw a cat', { useLLM: false });
+
+      expect(result).toBe('image');
+      expect(mockRouterArtifactService.route).toHaveBeenCalledWith('intent-dispatch', 'draw a cat');
+    });
+
+    test('should fall through on router error and log warning', async () => {
+      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
+      mockRouterArtifactService.route.mockRejectedValue(new Error('Network error'));
+
+      const result = await intentClassifier.classifyIntent('draw a cat', { useLLM: false });
+
+      expect(result).toBe('image');
+      expect(mockRouterArtifactService.route).toHaveBeenCalled();
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    test('should validate router label is image or text', async () => {
+      mockRouterArtifactService.route.mockResolvedValue({
+        label: 'image',
+        confidence: 0.95,
+        scores: { image: 0.95, text: 0.05 },
+      });
+
+      const result = await intentClassifier.classifyIntent('test message', { useLLM: false });
+
+      expect(result).toBe('image');
+    });
+
+    test('should fall through when router returns text with high confidence', async () => {
+      mockRouterArtifactService.route.mockResolvedValue({
+        label: 'text',
+        confidence: 0.92,
+        scores: { image: 0.08, text: 0.92 },
+      });
+
+      const result = await intentClassifier.classifyIntent('what is this', { useLLM: false });
+
+      expect(result).toBe('text');
+      expect(mockRouterArtifactService.route).toHaveBeenCalledWith('intent-dispatch', 'what is this');
+    });
+
+    test('should cache router result along with non-router classifications', async () => {
+      mockRouterArtifactService.route.mockResolvedValue({
+        label: 'image',
+        confidence: 0.88,
+        scores: { image: 0.88, text: 0.12 },
+      });
+
+      // First call
+      const result1 = await intentClassifier.classifyIntent('cached message', { useLLM: false });
+      expect(result1).toBe('image');
+
+      // Second call should use cache
+      const result2 = await intentClassifier.classifyIntent('cached message', { useLLM: false });
+      expect(result2).toBe('image');
+
+      // Router should only be called once (on first classification)
+      expect(mockRouterArtifactService.route).toHaveBeenCalledTimes(1);
+    });
+
+    test('should prioritize router over pattern matching', async () => {
+      mockRouterArtifactService.route.mockResolvedValue({
+        label: 'text',
+        confidence: 0.86,
+        scores: { image: 0.14, text: 0.86 },
+      });
+
+      // "draw a cat" would normally match image pattern
+      // but router says text with high confidence
+      const result = await intentClassifier.classifyIntent('draw a cat', { useLLM: false });
+
+      expect(result).toBe('text');
+      expect(mockRouterArtifactService.route).toHaveBeenCalledWith('intent-dispatch', 'draw a cat');
+    });
+
+    test('should handle exact 0.85 confidence threshold (edge case)', async () => {
+      mockRouterArtifactService.route.mockResolvedValue({
+        label: 'image',
+        confidence: 0.85,
+        scores: { image: 0.85, text: 0.15 },
+      });
+
+      const result = await intentClassifier.classifyIntent('test', { useLLM: false });
+
+      expect(result).toBe('image');
+    });
+
+    test('should handle just below 0.85 confidence threshold', async () => {
+      mockRouterArtifactService.route.mockResolvedValue({
+        label: 'image',
+        confidence: 0.849999,
+        scores: { image: 0.849999, text: 0.150001 },
+      });
+
+      const result = await intentClassifier.classifyIntent('draw something', { useLLM: false });
+
+      // Falls through to pattern matching
       expect(result).toBe('image');
     });
   });

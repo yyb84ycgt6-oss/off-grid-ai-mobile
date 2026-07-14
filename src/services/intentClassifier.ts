@@ -1,5 +1,6 @@
 import { llmService } from './llm';
 import { activeModelService } from './activeModelService';
+import { routerArtifactService } from './routerArtifact';
 import { DownloadedModel } from '../types';
 import logger from '../utils/logger';
 
@@ -202,6 +203,26 @@ class IntentClassifier {
     if (cachedIntent) {
       logger.log(`[ROUTE-SM] classify CACHE intent=${cachedIntent} msg="${logMsg}"`);
       return cachedIntent;
+    }
+
+    // Consult router artifact if available
+    try {
+      const routerResult = await routerArtifactService.route('intent-dispatch', message);
+
+      // Validate labels are subset of {'image','text'}
+      const allowedLabels = new Set(['image', 'text']);
+      const labelsAreValid = routerResult.label === 'image' || routerResult.label === 'text';
+
+      if (labelsAreValid && routerResult.confidence >= 0.85) {
+        logger.log(`[ROUTE-SM] classify ROUTER intent=${routerResult.label} conf=${routerResult.confidence} msg="${logMsg}"`);
+        this.cacheIntent(cacheKey, routerResult.label);
+        return routerResult.label;
+      }
+    } catch (error) {
+      // Artifact doesn't exist or routing failed — fall through to pattern matching
+      if (!(error instanceof Error) || !error.message.includes('not found')) {
+        logger.warn('[IntentClassifier] Router classification failed:', error);
+      }
     }
 
     // Fast pattern matching

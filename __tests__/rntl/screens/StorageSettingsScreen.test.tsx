@@ -139,6 +139,26 @@ jest.mock('../../../src/services/backupService', () => ({
   },
 }));
 
+let mockRouterArtifacts: any[] = [];
+const mockRouterList = jest.fn(() => Promise.resolve(mockRouterArtifacts));
+const mockRouterImport = jest.fn((file: any) =>
+  Promise.resolve({
+    name: 'test-router',
+    kind: 'nano',
+    labels: ['image', 'text'],
+    sizeBytes: 512000,
+  })
+);
+const mockRouterRemove = jest.fn(() => Promise.resolve());
+
+jest.mock('../../../src/services/routerArtifact', () => ({
+  routerArtifactService: {
+    list: (...args: any[]) => (mockRouterList as any)(...args),
+    import: (...args: any[]) => (mockRouterImport as any)(...args),
+    remove: (...args: any[]) => (mockRouterRemove as any)(...args),
+  },
+}));
+
 jest.mock('../../../src/services', () => ({
   hardwareService: {
     getFreeDiskStorageGB: jest.fn(() => 50),
@@ -178,7 +198,9 @@ describe('StorageSettingsScreen', () => {
     mockDownloadedImageModels = [];
     mockStaleDownloadStoreEntries = [];
     mockConversations = [];
+    mockRouterArtifacts = [];
     mockGetOrphanedFiles.mockResolvedValue([]);
+    mockRouterList.mockResolvedValue([]);
   });
 
   // ---- Rendering tests ----
@@ -826,6 +848,264 @@ describe('StorageSettingsScreen', () => {
       });
 
       expect(mockShowAlert).toHaveBeenCalledWith('Import Failed', 'Could not read the backup file.');
+    });
+  });
+
+  // ---- Router artifacts section ----
+
+  describe('Router artifacts section', () => {
+    const { pick, isErrorWithCode } = require('@react-native-documents/picker');
+
+    it('renders the Router Artifacts card with import row', () => {
+      const { getByText } = render(<StorageSettingsScreen />);
+      expect(getByText('Router Artifacts')).toBeTruthy();
+      expect(getByText('Import artifact')).toBeTruthy();
+    });
+
+    it('shows empty state message when no artifacts are imported', () => {
+      mockRouterList.mockResolvedValueOnce([]);
+      const { getByText } = render(<StorageSettingsScreen />);
+      expect(getByText(/No router artifacts imported/)).toBeTruthy();
+    });
+
+    it('loads and displays router artifacts on mount', async () => {
+      mockRouterList.mockResolvedValueOnce([
+        {
+          name: 'test-router',
+          kind: 'nano',
+          labels: ['image', 'text'],
+          sizeBytes: 512000,
+          task: 'intent classification',
+        },
+      ]);
+      const { getByText } = render(<StorageSettingsScreen />);
+
+      await act(async () => {
+        await new Promise<void>(resolve => setTimeout(() => resolve(), 0));
+      });
+
+      expect(getByText('test-router')).toBeTruthy();
+      expect(getByText(/nano/)).toBeTruthy();
+      expect(getByText(/2 labels/)).toBeTruthy();
+      expect(mockRouterList).toHaveBeenCalledTimes(1);
+    });
+
+    it('imports the picked file and shows success alert', async () => {
+      pick.mockResolvedValueOnce([{ uri: 'file:///mock/router.json', name: 'router.json' }]);
+      mockRouterImport.mockResolvedValueOnce({
+        name: 'test-router',
+        kind: 'nano',
+        labels: ['image', 'text'],
+        sizeBytes: 256000,
+      });
+      mockRouterList.mockResolvedValueOnce([]);
+      const { getByText } = render(<StorageSettingsScreen />);
+
+      await act(async () => {
+        fireEvent.press(getByText('Import artifact'));
+      });
+
+      expect(mockRouterImport).toHaveBeenCalledWith({ uri: 'file:///mock/router.json', name: 'router.json' });
+      expect(mockShowAlert).toHaveBeenCalledWith(
+        'Router Artifact Imported',
+        expect.stringContaining('test-router'),
+      );
+    });
+
+    it('does nothing when the picker returns no file', async () => {
+      pick.mockResolvedValueOnce([]);
+      const { getByText } = render(<StorageSettingsScreen />);
+
+      await act(async () => {
+        fireEvent.press(getByText('Import artifact'));
+      });
+
+      expect(mockRouterImport).not.toHaveBeenCalled();
+      expect(mockShowAlert).not.toHaveBeenCalled();
+    });
+
+    it('stays silent when the user cancels the picker', async () => {
+      const cancel = Object.assign(new Error('canceled'), { code: 'OPERATION_CANCELED' });
+      pick.mockRejectedValueOnce(cancel);
+      isErrorWithCode.mockReturnValueOnce(true);
+      const { getByText } = render(<StorageSettingsScreen />);
+
+      await act(async () => {
+        fireEvent.press(getByText('Import artifact'));
+      });
+
+      expect(mockRouterImport).not.toHaveBeenCalled();
+      expect(mockShowAlert).not.toHaveBeenCalled();
+    });
+
+    it('shows error alert when import fails', async () => {
+      pick.mockResolvedValueOnce([{ uri: 'file:///mock/bad.json', name: 'bad.json' }]);
+      mockRouterImport.mockRejectedValueOnce(new Error('Invalid router artifact format.'));
+      const { getByText } = render(<StorageSettingsScreen />);
+
+      await act(async () => {
+        fireEvent.press(getByText('Import artifact'));
+      });
+
+      expect(mockShowAlert).toHaveBeenCalledWith(
+        'Import Failed',
+        'Invalid router artifact format.',
+      );
+    });
+
+    it('shows fallback error message when import throws non-Error', async () => {
+      pick.mockResolvedValueOnce([{ uri: 'file:///mock/bad.json', name: 'bad.json' }]);
+      mockRouterImport.mockRejectedValueOnce('unknown error');
+      const { getByText } = render(<StorageSettingsScreen />);
+
+      await act(async () => {
+        fireEvent.press(getByText('Import artifact'));
+      });
+
+      expect(mockShowAlert).toHaveBeenCalledWith(
+        'Import Failed',
+        'Could not import the router artifact.',
+      );
+    });
+
+    it('shows delete confirmation when trash button pressed', async () => {
+      mockRouterList.mockResolvedValueOnce([
+        {
+          name: 'test-router',
+          kind: 'embed',
+          labels: ['label1', 'label2'],
+          sizeBytes: 1024000,
+          task: 'routing',
+        },
+      ]);
+      const { getByText, UNSAFE_getAllByType } = render(<StorageSettingsScreen />);
+
+      await act(async () => {
+        await new Promise<void>(resolve => setTimeout(() => resolve(), 0));
+      });
+
+      const touchables = UNSAFE_getAllByType(TouchableOpacity);
+      // Find and press the trash icon for the artifact
+      for (const btn of touchables) {
+        mockShowAlert.mockClear();
+        fireEvent.press(btn);
+        if (mockShowAlert.mock.calls.length > 0 &&
+            mockShowAlert.mock.calls[0][0] === 'Remove Router Artifact') {
+          break;
+        }
+      }
+
+      expect(mockShowAlert).toHaveBeenCalledWith(
+        'Remove Router Artifact',
+        expect.stringContaining('test-router'),
+        expect.any(Array),
+      );
+    });
+
+    it('removes the artifact when confirmed', async () => {
+      mockRouterList.mockResolvedValueOnce([
+        {
+          name: 'test-router',
+          kind: 'nano',
+          labels: ['a', 'b'],
+          sizeBytes: 500000,
+          task: 'routing',
+        },
+      ]);
+      mockRouterRemove.mockResolvedValueOnce(undefined);
+      mockRouterList.mockResolvedValueOnce([]);
+
+      const { getByText, UNSAFE_getAllByType } = render(<StorageSettingsScreen />);
+
+      await act(async () => {
+        await new Promise<void>(resolve => setTimeout(() => resolve(), 0));
+      });
+
+      // Find and press the trash icon
+      const touchables = UNSAFE_getAllByType(TouchableOpacity);
+      for (const btn of touchables) {
+        mockShowAlert.mockClear();
+        fireEvent.press(btn);
+        if (mockShowAlert.mock.calls.length > 0 &&
+            mockShowAlert.mock.calls[0][0] === 'Remove Router Artifact') {
+          // Now click the "Remove" button in the alert
+          const buttons = mockShowAlert.mock.calls[0][2] as any[];
+          const removeBtn = buttons.find((b: any) => b.text === 'Remove');
+          if (removeBtn?.onPress) {
+            await act(async () => {
+              removeBtn.onPress();
+            });
+          }
+          break;
+        }
+      }
+
+      expect(mockRouterRemove).toHaveBeenCalledWith('test-router');
+    });
+
+    it('shows "1 artifact" in singular form', async () => {
+      mockRouterList.mockResolvedValueOnce([
+        {
+          name: 'single-router',
+          kind: 'nano',
+          labels: ['x'],
+          sizeBytes: 100000,
+          task: '',
+        },
+      ]);
+      const { getByText } = render(<StorageSettingsScreen />);
+
+      await act(async () => {
+        await new Promise<void>(resolve => setTimeout(() => resolve(), 0));
+      });
+
+      expect(getByText('1 artifact imported.')).toBeTruthy();
+    });
+
+    it('shows "2 artifacts" in plural form', async () => {
+      mockRouterList.mockResolvedValueOnce([
+        {
+          name: 'router1',
+          kind: 'nano',
+          labels: ['a'],
+          sizeBytes: 100000,
+          task: '',
+        },
+        {
+          name: 'router2',
+          kind: 'embed',
+          labels: ['b', 'c'],
+          sizeBytes: 200000,
+          task: '',
+        },
+      ]);
+      const { getByText } = render(<StorageSettingsScreen />);
+
+      await act(async () => {
+        await new Promise<void>(resolve => setTimeout(() => resolve(), 0));
+      });
+
+      expect(getByText('2 artifacts imported.')).toBeTruthy();
+    });
+
+    it('renders artifact kind and label count correctly', async () => {
+      mockRouterList.mockResolvedValueOnce([
+        {
+          name: 'embed-router',
+          kind: 'embed',
+          labels: ['label1', 'label2', 'label3'],
+          sizeBytes: 1500000,
+          task: 'routing',
+        },
+      ]);
+      const { getByText } = render(<StorageSettingsScreen />);
+
+      await act(async () => {
+        await new Promise<void>(resolve => setTimeout(() => resolve(), 0));
+      });
+
+      expect(getByText(/embed/)).toBeTruthy();
+      expect(getByText(/3 labels/)).toBeTruthy();
     });
   });
 });
