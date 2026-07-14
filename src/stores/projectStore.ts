@@ -15,6 +15,8 @@ interface ProjectState {
   deleteProject: (id: string) => void;
   getProject: (id: string) => Project | undefined;
   duplicateProject: (id: string) => Project | null;
+  /** Bulk-apply a merged project list (backup restore). Merge logic lives in backupService. */
+  replaceProjects: (projects: Project[]) => void;
 }
 
 // Default projects as examples
@@ -140,6 +142,10 @@ export const useProjectStore = create<ProjectState>()(
         }));
 
         return duplicate;
+      },
+
+      replaceProjects: (projects) => {
+        set({ projects });
       },
     }),
     {

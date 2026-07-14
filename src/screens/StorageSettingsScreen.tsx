@@ -8,6 +8,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Feather';
 import { useNavigation } from '@react-navigation/native';
+import { pick, types, isErrorWithCode, errorCodes } from '@react-native-documents/picker';
 import { Card } from '../components';
 import { CustomAlert, showAlert, hideAlert, AlertState, initialAlertState } from '../components/CustomAlert';
 import { useTheme, useThemedStyles } from '../theme';
@@ -15,6 +16,7 @@ import { SPACING } from '../constants';
 import { useAppStore, useChatStore } from '../stores';
 import { useDownloadStore } from '../stores/downloadStore';
 import { hardwareService, modelManager } from '../services';
+import { backupService } from '../services/backupService';
 import { OrphanedFilesSection } from './OrphanedFilesSection';
 import { imageBackendLabel } from '../utils/imageBackend';
 import { createStyles } from './StorageSettingsScreen.styles';
@@ -60,6 +62,32 @@ export const StorageSettingsScreen: React.FC = () => {
     },
     [removeFromStore],
   );
+
+  const handleExportBackup = useCallback(async () => {
+    try {
+      await backupService.exportBackup();
+    } catch (error) {
+      setAlertState(showAlert('Export Failed', error instanceof Error ? error.message : 'Could not write the backup file.'));
+    }
+  }, []);
+
+  const handleImportBackup = useCallback(async () => {
+    try {
+      const result = await pick({ type: [types.allFiles] });
+      if (!result || result.length === 0) return;
+      const file = result[0];
+      const fileName = file.name?.trim() || 'backup.json';
+      const summary = await backupService.importBackupFromFile(file.uri, fileName);
+      const skippedNote = summary.skippedItems > 0 ? ` ${summary.skippedItems} unreadable entries were skipped.` : '';
+      setAlertState(showAlert(
+        'Import Complete',
+        `Added ${summary.conversationsAdded + summary.projectsAdded}, updated ${summary.conversationsUpdated + summary.projectsUpdated}.${skippedNote}`,
+      ));
+    } catch (error) {
+      if (isErrorWithCode(error) && error.code === errorCodes.OPERATION_CANCELED) return;
+      setAlertState(showAlert('Import Failed', error instanceof Error ? error.message : 'Could not read the backup file.'));
+    }
+  }, []);
 
   const handleClearAllStaleDownloads = useCallback(() => {
     setAlertState(
@@ -146,6 +174,27 @@ export const StorageSettingsScreen: React.FC = () => {
             </View>
             <Text style={styles.infoValue}>{conversations.length}</Text>
           </View>
+        </Card>
+
+        <Card style={styles.section}>
+          <Text style={styles.sectionTitle}>Backup</Text>
+          <TouchableOpacity style={styles.infoRow} onPress={handleExportBackup}>
+            <View style={styles.infoRowLeft}>
+              <Icon name="upload" size={18} color={colors.primary} />
+              <Text style={styles.infoLabel}>Export data</Text>
+            </View>
+            <Icon name="chevron-right" size={18} color={colors.textSecondary} />
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.infoRow, styles.lastRow]} onPress={handleImportBackup}>
+            <View style={styles.infoRowLeft}>
+              <Icon name="download" size={18} color={colors.primary} />
+              <Text style={styles.infoLabel}>Import data</Text>
+            </View>
+            <Icon name="chevron-right" size={18} color={colors.textSecondary} />
+          </TouchableOpacity>
+          <Text style={[styles.hint, { textAlign: 'left' as const, marginTop: SPACING.sm }]}>
+            Your conversations and projects are written to a single JSON file on export. You choose where it goes from the share sheet. The app itself uploads nothing.
+          </Text>
         </Card>
 
         {downloadedModels.length > 0 && (

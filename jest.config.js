@@ -97,5 +97,8 @@ module.exports = {
     './src/utils/imageGenAdvice.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
     './src/services/modelLoadErrors.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
     './src/components/ImageGenAdviceCard.tsx': { statements: 100, branches: 100, functions: 100, lines: 100 },
+    './src/services/backupService/serialize.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+    './src/services/backupService/index.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+    './src/services/backupService/types.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
   },
 };

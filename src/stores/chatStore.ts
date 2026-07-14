@@ -153,6 +153,8 @@ interface ChatState {
   clearStreamingMessage: () => void;
   getStreamingState: () => { conversationId: string | null; content: string; reasoningContent: string; isStreaming: boolean; isThinking: boolean };
   updateCompactionState: (conversationId: string, summary?: string, cutoffMessageId?: string) => void;
+  /** Bulk-apply a merged conversation list (backup restore). Merge logic lives in backupService. */
+  replaceConversations: (conversations: Conversation[]) => void;
   clearAllConversations: () => void;
   getConversationMessages: (conversationId: string) => Message[];
 }
@@ -386,6 +388,17 @@ export const useChatStore = create<ChatState>()(
                 }
               : conv
           ),
+        }));
+      },
+
+      replaceConversations: (conversations) => {
+        set((state) => ({
+          conversations,
+          // The active conversation may not survive a restore; never point at a ghost.
+          activeConversationId:
+            state.activeConversationId && conversations.some((c) => c.id === state.activeConversationId)
+              ? state.activeConversationId
+              : null,
         }));
       },
 

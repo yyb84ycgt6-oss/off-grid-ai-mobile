@@ -123,6 +123,22 @@ const mockFormatBytes = jest.fn((bytes: number) => {
 const mockGetOrphanedFiles = jest.fn<Promise<any[]>, any[]>(() => Promise.resolve([]));
 const mockDeleteOrphanedFile = jest.fn(() => Promise.resolve());
 
+const mockExportBackup = jest.fn(() => Promise.resolve('/mock/caches/offgrid-backup.json'));
+const mockImportBackupFromFile = jest.fn(() => Promise.resolve({
+  conversationsAdded: 2,
+  conversationsUpdated: 1,
+  projectsAdded: 1,
+  projectsUpdated: 0,
+  skippedItems: 0,
+}));
+
+jest.mock('../../../src/services/backupService', () => ({
+  backupService: {
+    exportBackup: (...args: any[]) => (mockExportBackup as any)(...args),
+    importBackupFromFile: (...args: any[]) => (mockImportBackupFromFile as any)(...args),
+  },
+}));
+
 jest.mock('../../../src/services', () => ({
   hardwareService: {
     getFreeDiskStorageGB: jest.fn(() => 50),
@@ -673,6 +689,143 @@ describe('StorageSettingsScreen', () => {
     await act(async () => {
       resolveOrphaned([]);
       await new Promise<void>(resolve => setTimeout(() => resolve(), 0));
+    });
+  });
+
+  // ---- Backup section ----
+
+  describe('Backup section', () => {
+    const { pick, isErrorWithCode } = require('@react-native-documents/picker');
+
+    it('renders the Backup card with both rows', () => {
+      const { getByText } = render(<StorageSettingsScreen />);
+      expect(getByText('Backup')).toBeTruthy();
+      expect(getByText('Export data')).toBeTruthy();
+      expect(getByText('Import data')).toBeTruthy();
+    });
+
+    it('dispatches export to the backup service on tap', async () => {
+      const { getByText } = render(<StorageSettingsScreen />);
+
+      await act(async () => {
+        fireEvent.press(getByText('Export data'));
+      });
+
+      expect(mockExportBackup).toHaveBeenCalledTimes(1);
+      expect(mockShowAlert).not.toHaveBeenCalled();
+    });
+
+    it('shows the failure alert when export throws', async () => {
+      mockExportBackup.mockRejectedValueOnce(new Error('disk full'));
+      const { getByText } = render(<StorageSettingsScreen />);
+
+      await act(async () => {
+        fireEvent.press(getByText('Export data'));
+      });
+
+      expect(mockShowAlert).toHaveBeenCalledWith('Export Failed', 'disk full');
+    });
+
+    it('shows the fallback message when export throws a non-Error', async () => {
+      mockExportBackup.mockRejectedValueOnce('nope');
+      const { getByText } = render(<StorageSettingsScreen />);
+
+      await act(async () => {
+        fireEvent.press(getByText('Export data'));
+      });
+
+      expect(mockShowAlert).toHaveBeenCalledWith('Export Failed', 'Could not write the backup file.');
+    });
+
+    it('imports the picked file and reports the merge summary', async () => {
+      pick.mockResolvedValueOnce([{ uri: 'file:///mock/backup.json', name: 'backup.json' }]);
+      const { getByText } = render(<StorageSettingsScreen />);
+
+      await act(async () => {
+        fireEvent.press(getByText('Import data'));
+      });
+
+      expect(mockImportBackupFromFile).toHaveBeenCalledWith('file:///mock/backup.json', 'backup.json');
+      expect(mockShowAlert).toHaveBeenCalledWith('Import Complete', 'Added 3, updated 1.');
+    });
+
+    it('mentions skipped entries in the import summary when there are any', async () => {
+      pick.mockResolvedValueOnce([{ uri: 'file:///mock/backup.json', name: 'backup.json' }]);
+      mockImportBackupFromFile.mockResolvedValueOnce({
+        conversationsAdded: 1,
+        conversationsUpdated: 0,
+        projectsAdded: 0,
+        projectsUpdated: 0,
+        skippedItems: 2,
+      });
+      const { getByText } = render(<StorageSettingsScreen />);
+
+      await act(async () => {
+        fireEvent.press(getByText('Import data'));
+      });
+
+      expect(mockShowAlert).toHaveBeenCalledWith('Import Complete', 'Added 1, updated 0. 2 unreadable entries were skipped.');
+    });
+
+    it('falls back to a default file name when the picker gives none', async () => {
+      pick.mockResolvedValueOnce([{ uri: 'file:///mock/backup.json', name: '   ' }]);
+      const { getByText } = render(<StorageSettingsScreen />);
+
+      await act(async () => {
+        fireEvent.press(getByText('Import data'));
+      });
+
+      expect(mockImportBackupFromFile).toHaveBeenCalledWith('file:///mock/backup.json', 'backup.json');
+    });
+
+    it('does nothing when the picker returns no file', async () => {
+      pick.mockResolvedValueOnce([]);
+      const { getByText } = render(<StorageSettingsScreen />);
+
+      await act(async () => {
+        fireEvent.press(getByText('Import data'));
+      });
+
+      expect(mockImportBackupFromFile).not.toHaveBeenCalled();
+      expect(mockShowAlert).not.toHaveBeenCalled();
+    });
+
+    it('stays silent when the user cancels the picker', async () => {
+      const cancel = Object.assign(new Error('canceled'), { code: 'OPERATION_CANCELED' });
+      pick.mockRejectedValueOnce(cancel);
+      isErrorWithCode.mockReturnValueOnce(true);
+      const { getByText } = render(<StorageSettingsScreen />);
+
+      await act(async () => {
+        fireEvent.press(getByText('Import data'));
+      });
+
+      expect(mockImportBackupFromFile).not.toHaveBeenCalled();
+      expect(mockShowAlert).not.toHaveBeenCalled();
+    });
+
+    it('shows the failure alert when the import throws', async () => {
+      pick.mockResolvedValueOnce([{ uri: 'file:///mock/bad.json', name: 'bad.json' }]);
+      mockImportBackupFromFile.mockRejectedValueOnce(new Error('This file is not an Off Grid backup.'));
+      const { getByText } = render(<StorageSettingsScreen />);
+
+      await act(async () => {
+        fireEvent.press(getByText('Import data'));
+      });
+
+      expect(mockShowAlert).toHaveBeenCalledWith('Import Failed', 'This file is not an Off Grid backup.');
+    });
+
+    it('shows the fallback message when the import throws a non-Error', async () => {
+      pick.mockResolvedValueOnce([{ uri: 'file:///mock/bad.json', name: 'bad.json' }]);
+      mockImportBackupFromFile.mockRejectedValueOnce('nope');
+      const { getByText } = render(<StorageSettingsScreen />);
+
+      await act(async () => {
+        fireEvent.press(getByText('Import data'));
+      });
+
+      expect(mockShowAlert).toHaveBeenCalledWith('Import Failed', 'Could not read the backup file.');
     });
   });
 });
