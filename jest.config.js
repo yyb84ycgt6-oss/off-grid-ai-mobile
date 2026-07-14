@@ -100,5 +100,11 @@ module.exports = {
     './src/services/backupService/serialize.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
     './src/services/backupService/index.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
     './src/services/backupService/types.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+    './src/services/routerArtifact/types.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+    './src/services/routerArtifact/base64.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+    './src/services/routerArtifact/nanoRuntime.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+    './src/services/routerArtifact/embedRuntime.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+    './src/services/routerArtifact/validate.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+    './src/services/routerArtifact/index.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
   },
 };
