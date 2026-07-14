@@ -1,6 +1,6 @@
 import fixture from '../../../fixtures/router-fixture-v1.json';
 import { validateArtifact } from '../../../../src/services/routerArtifact/validate';
-import { compileNano } from '../../../../src/services/routerArtifact/nanoRuntime';
+import { compileNano, extractFeatures } from '../../../../src/services/routerArtifact/nanoRuntime';
 import { routeWithEmbedding } from '../../../../src/services/routerArtifact/embedRuntime';
 
 /**
@@ -58,34 +58,26 @@ describe('router-forge contract: Python ↔ TypeScript parity', () => {
     const validated = validateArtifact(embedArtifact);
 
     /**
-     * Embed router requires a query embedding. For contract testing, we use a
-     * deterministic fake embedder that produces the same vectors the Python
-     * fixture used. This ensures the embed runtime is tested identically.
+     * Embed router requires a query embedding. For contract testing, we use
+     * the same embedder the Python fixture was built with: hashed char n-gram
+     * features (same as nano) with 8 hash dimensions.
      */
-    const fakeEmbedder = (text: string): number[] => {
+    const fixtureEmbedder = (text: string): number[] => {
       const dims = (validated.model as any).dims;
-      const normalized = text.toLowerCase().trim();
-      // eslint-disable-next-line no-bitwise
-      const seed = normalized.split('').reduce((s, c) => ((s << 5) - s + c.charCodeAt(0)) | 0, 0);
+      const features = extractFeatures(text, dims, [2, 3, 4]);
 
-      const values: number[] = [];
+      // Convert sparse feature map to dense vector
+      const vector: number[] = [];
       for (let i = 0; i < dims; i++) {
-        const x = Math.sin(seed + i) * Math.cos(seed * i);
-        values.push(x);
+        vector.push(features.get(i) ?? 0);
       }
-
-      let sum = 0;
-      for (const v of values) {
-        sum += v * v;
-      }
-      const norm = Math.sqrt(sum) || 1;
-      return values.map(v => v / norm);
+      return vector;
     };
 
     const embedCases = cases.embed || [];
     embedCases.forEach((testCase: any, idx: number) => {
       it(`case ${idx}: ${testCase.text}`, () => {
-        const queryVector = fakeEmbedder(testCase.text);
+        const queryVector = fixtureEmbedder(testCase.text);
         const result = routeWithEmbedding(validated.labels, validated.model as any, queryVector);
         const expected = testCase.expected;
 
