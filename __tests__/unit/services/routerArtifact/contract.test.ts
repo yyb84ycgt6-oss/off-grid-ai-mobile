@@ -33,7 +33,8 @@ describe('router-forge contract: Python ↔ TypeScript parity', () => {
     const validated = validateArtifact(nanoArtifact);
     const compiled = compileNano(validated.labels, validated.model as any);
 
-    cases.forEach((testCase: any, idx: number) => {
+    const nanoCases = cases.nano || [];
+    nanoCases.forEach((testCase: any, idx: number) => {
       it(`case ${idx}: ${testCase.text}`, () => {
         const result = compiled.route(testCase.text);
         const expected = testCase.expected;
@@ -81,7 +82,8 @@ describe('router-forge contract: Python ↔ TypeScript parity', () => {
       return values.map(v => v / norm);
     };
 
-    cases.forEach((testCase: any, idx: number) => {
+    const embedCases = cases.embed || [];
+    embedCases.forEach((testCase: any, idx: number) => {
       it(`case ${idx}: ${testCase.text}`, () => {
         const queryVector = fakeEmbedder(testCase.text);
         const result = routeWithEmbedding(validated.labels, validated.model as any, queryVector);
