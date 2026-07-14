@@ -210,7 +210,6 @@ class IntentClassifier {
       const routerResult = await routerArtifactService.route('intent-dispatch', message);
 
       // Validate labels are subset of {'image','text'}
-      const allowedLabels = new Set(['image', 'text']);
       const labelsAreValid = routerResult.label === 'image' || routerResult.label === 'text';
 
       if (labelsAreValid && routerResult.confidence >= 0.85) {

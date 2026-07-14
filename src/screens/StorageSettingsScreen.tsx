@@ -17,11 +17,10 @@ import { useAppStore, useChatStore } from '../stores';
 import { useDownloadStore } from '../stores/downloadStore';
 import { hardwareService, modelManager } from '../services';
 import { backupService } from '../services/backupService';
-import { routerArtifactService } from '../services/routerArtifact';
-import type { StoredRouterSummary } from '../services/routerArtifact/types';
 import { OrphanedFilesSection } from './OrphanedFilesSection';
 import { imageBackendLabel } from '../utils/imageBackend';
 import { createStyles } from './StorageSettingsScreen.styles';
+import { useRouterArtifacts } from './hooks/useRouterArtifacts';
 
 export const StorageSettingsScreen: React.FC = () => {
   const navigation = useNavigation();
@@ -30,7 +29,6 @@ export const StorageSettingsScreen: React.FC = () => {
   const [storageUsed, setStorageUsed] = useState(0);
   const [availableStorage, setAvailableStorage] = useState(0);
   const [alertState, setAlertState] = useState<AlertState>(initialAlertState);
-  const [routerArtifacts, setRouterArtifacts] = useState<StoredRouterSummary[]>([]);
 
   const {
     downloadedModels,
@@ -39,6 +37,7 @@ export const StorageSettingsScreen: React.FC = () => {
   const { conversations } = useChatStore();
   const downloads = useDownloadStore(s => s.downloads);
   const removeFromStore = useDownloadStore(s => s.remove);
+  const { routerArtifacts, loadRouterArtifacts, handleImportRouterArtifact: hookImportRouter, handleRemoveRouterArtifact } = useRouterArtifacts();
 
   const imageStorageUsed = downloadedImageModels.reduce((total, m) => total + (m.size || 0), 0);
 
@@ -54,15 +53,6 @@ export const StorageSettingsScreen: React.FC = () => {
     setStorageUsed(used + imageStorageUsed);
     setAvailableStorage(available);
   }, [imageStorageUsed]);
-
-  const loadRouterArtifacts = useCallback(async () => {
-    try {
-      const artifacts = await routerArtifactService.list();
-      setRouterArtifacts(artifacts);
-    } catch (error) {
-      console.warn('Failed to load router artifacts:', error);
-    }
-  }, []);
 
   useEffect(() => {
     loadStorageInfo();
@@ -104,46 +94,18 @@ export const StorageSettingsScreen: React.FC = () => {
 
   const handleImportRouterArtifact = useCallback(async () => {
     try {
-      const result = await pick({ type: [types.allFiles] });
-      if (!result || result.length === 0) return;
-      const file = result[0];
-      const summary = await routerArtifactService.import(file);
-      setAlertState(showAlert(
-        'Router Artifact Imported',
-        `Imported "${summary.name}" (${summary.kind}, ${hardwareService.formatBytes(summary.sizeBytes)})`,
-      ));
-      await loadRouterArtifacts();
+      const summary = await hookImportRouter();
+      if (summary) {
+        setAlertState(showAlert(
+          'Router Artifact Imported',
+          `Imported "${summary.name}" (${summary.kind}, ${hardwareService.formatBytes(summary.sizeBytes)})`,
+        ));
+      }
     } catch (error) {
       if (isErrorWithCode(error) && error.code === errorCodes.OPERATION_CANCELED) return;
       setAlertState(showAlert('Import Failed', error instanceof Error ? error.message : 'Could not import the router artifact.'));
     }
-  }, [loadRouterArtifacts]);
-
-  const handleRemoveRouterArtifact = useCallback((name: string) => {
-    setAlertState(
-      showAlert(
-        'Remove Router Artifact',
-        `Remove "${name}"?`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Remove',
-            style: 'destructive',
-            onPress: async () => {
-              setAlertState(hideAlert());
-              try {
-                await routerArtifactService.remove(name);
-                await loadRouterArtifacts();
-                setAlertState(showAlert('Removed', `Router artifact "${name}" was removed.`));
-              } catch (error) {
-                setAlertState(showAlert('Error', error instanceof Error ? error.message : 'Failed to remove artifact.'));
-              }
-            },
-          },
-        ],
-      ),
-    );
-  }, [loadRouterArtifacts]);
+  }, [hookImportRouter]);
 
   const handleClearAllStaleDownloads = useCallback(() => {
     setAlertState(
@@ -279,7 +241,7 @@ export const StorageSettingsScreen: React.FC = () => {
                     </Text>
                   </View>
                   <TouchableOpacity
-                    onPress={() => handleRemoveRouterArtifact(artifact.name)}
+                    onPress={() => handleRemoveRouterArtifact(artifact.name, setAlertState)}
                   >
                     <Icon name="trash-2" size={18} color={colors.error} />
                   </TouchableOpacity>

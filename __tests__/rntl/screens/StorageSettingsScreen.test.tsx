@@ -141,7 +141,7 @@ jest.mock('../../../src/services/backupService', () => ({
 
 let mockRouterArtifacts: any[] = [];
 const mockRouterList = jest.fn(() => Promise.resolve(mockRouterArtifacts));
-const mockRouterImport = jest.fn((file: any) =>
+const mockRouterImport = jest.fn((_file: any) =>
   Promise.resolve({
     name: 'test-router',
     kind: 'nano',
@@ -978,7 +978,7 @@ describe('StorageSettingsScreen', () => {
           task: 'routing',
         },
       ]);
-      const { getByText, UNSAFE_getAllByType } = render(<StorageSettingsScreen />);
+      const { UNSAFE_getAllByType } = render(<StorageSettingsScreen />);
 
       await act(async () => {
         await new Promise<void>(resolve => setTimeout(() => resolve(), 0));
@@ -1015,7 +1015,7 @@ describe('StorageSettingsScreen', () => {
       mockRouterRemove.mockResolvedValueOnce(undefined);
       mockRouterList.mockResolvedValueOnce([]);
 
-      const { getByText, UNSAFE_getAllByType } = render(<StorageSettingsScreen />);
+      const { UNSAFE_getAllByType } = render(<StorageSettingsScreen />);
 
       await act(async () => {
         await new Promise<void>(resolve => setTimeout(() => resolve(), 0));
