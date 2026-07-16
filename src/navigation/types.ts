@@ -24,6 +24,7 @@ export type RootStackParamList = {
   ProDetail: undefined;
   About: undefined;
   Tools: undefined;
+  ApiForge: undefined;
 };
 
 // Tab navigator — simple, no sub-stacks
